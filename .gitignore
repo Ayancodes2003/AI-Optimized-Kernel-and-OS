@@ -205,3 +205,56 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+# ========== C/C++/BPF/Kernel Build Artifacts ==========
+
+# Build system
+build/
+Makefile.local
+compile_commands.json
+
+# Generated files
+vmlinux.h
+kernel/vmlinux.h
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.user
+*.elf
+
+# Object and binary files
+*.o
+*.obj
+*.ko
+*.mod
+*.a
+*.so
+*.so.*
+*.dylib
+
+# BPF/eBPF specific
+*.bpf.o
+*.skel.h
+vmlinux_*.h
+
+# Testing
+*.test
+.pytest_cache/
+test_results.xml
+coverage/
+
+# Packaging
+*.deb
+*.rpm
+*.tar.gz
+*.iso
+
+# Misc
+.clang-format
+.clang-tidy
+*.orig
+.swp
+._*
