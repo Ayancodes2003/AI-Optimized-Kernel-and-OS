@@ -1,226 +1,109 @@
-/*
- * AIE-OS Scheduler Monitor Tool (aie_top)
- *
- * Real-time CLI dashboard showing:
- * - Scheduler statistics (tasks routed per device, energy estimates)
- * - Task classification breakdown
- * - Energy mode and policy configuration
- * - Top tasks by CPU/memory/AI classification
- *
- * Similar to 'top' or 'htop' but scheduler-focused.
- * Updates every 2-3 seconds.
- */
-
 #include <iostream>
 #include <iomanip>
-#include <vector>
-#include <map>
 #include <string>
 #include <cstring>
 #include <unistd.h>
 #include <signal.h>
-#include <sys/time.h>
-
+#include <errno.h>
+#include <linux/bpf.h>
+#include <bpf/bpf.h>
+#include <bpf/libbpf.h>
 #include "ai_sched.h"
 
-namespace aie {
+#define SCHED_STATS_PIN     "/sys/fs/bpf/aie_sched_stats"
+#define ENERGY_MODE_PIN     "/sys/fs/bpf/aie_energy_mode"
 
-/* Simple monitoring client */
-class SchedulerMonitor {
-public:
-	SchedulerMonitor();
-	~SchedulerMonitor();
-	
-	int init();
-	int run(int refresh_interval_sec = 2);
-	void shutdown();
-	
-private:
-	void display_header();
-	void display_stats(const struct ai_sched_stats *stats);
-	void display_energy_mode();
-	void display_task_classes();
-	void clear_screen();
-	
-	bool running_;
-};
+static volatile bool running = true;
+static void signal_handler(int) { running = false; }
 
-SchedulerMonitor::SchedulerMonitor()
-	: running_(false)
-{
+static void clear_screen() { std::cout << "\033[2J\033[H"; std::cout.flush(); }
+
+static const char* energy_mode_str(uint32_t mode) {
+    switch (mode) {
+        case 0: return "PERFORMANCE";
+        case 1: return "BALANCED";
+        case 2: return "EFFICIENT";
+        case 3: return "POWER_SAVER";
+        default: return "UNKNOWN";
+    }
 }
 
-SchedulerMonitor::~SchedulerMonitor()
-{
+static void display_header() {
+    std::cout << "╔════════════════════════════════════════════════════════════╗\n"
+              << "║        AIE-OS Scheduler Monitor (aie_top)                ║\n"
+              << "║  AI-Native Kernel Scheduler Real-Time Dashboard           ║\n"
+              << "╚════════════════════════════════════════════════════════════╝\n\n";
 }
 
-int SchedulerMonitor::init()
-{
-	/* TODO: Connect to stats monitor interface
-	 * For now: stub
-	 */
-	running_ = true;
-	return 0;
+static void display_stats(const struct ai_sched_stats *s, bool live) {
+    std::cout << "╔════ SCHEDULER STATISTICS " << (live ? "[LIVE]" : "[OFFLINE]") << " ══════════════════════════╗\n";
+    std::cout << "║ Total Tasks Enqueued:      " << std::setw(25) << s->tasks_enqueued      << " │\n";
+    std::cout << "║ Total Tasks Dispatched:    " << std::setw(25) << s->tasks_dispatched    << " │\n";
+    std::cout << "║ AI Tasks → Perf Cores:     " << std::setw(25) << s->tasks_ai_routed_cpu << " │\n";
+    std::cout << "║ AI Tasks → NPU:            " << std::setw(25) << s->tasks_ai_routed_npu << " │\n";
+    std::cout << "║ Background → Eff Cores:    " << std::setw(25) << s->tasks_bg_routed_eff << " │\n";
+    std::cout << "║ Avg Enqueue Latency:       " << std::setw(20) << s->avg_enqueue_latency_us << " µs │\n";
+    std::cout << "║ Estimated Energy (~):      " << std::setw(20) << s->total_energy_estimate_mj << " mJ │\n";
+    std::cout << "╚═══════════════════════════════════════════════════════════╝\n\n";
 }
 
-void SchedulerMonitor::shutdown()
-{
-	running_ = false;
+static void display_energy(uint32_t mode) {
+    std::cout << "╔════ POWER MANAGEMENT ═════════════════════════════════════╗\n";
+    std::cout << "║ Energy Mode:   " << std::setw(20) << energy_mode_str(mode) << "                        │\n";
+    std::cout << "╚═══════════════════════════════════════════════════════════╝\n\n";
 }
 
-int SchedulerMonitor::run(int refresh_interval_sec)
-{
-	struct ai_sched_stats stats;
-	std::memset(&stats, 0, sizeof(stats));
-	
-	while (running_) {
-		clear_screen();
-		display_header();
-		
-		/* TODO: Read actual stats from kernel
-		 * For now: display placeholder
-		 */
-		display_stats(&stats);
-		display_energy_mode();
-		display_task_classes();
-		
-		/* Print refresh hint */
-		std::cout << "\n[Refreshing every " << refresh_interval_sec
-			  << " seconds. Press Ctrl+C to exit]\n";
-		
-		sleep(refresh_interval_sec);
-	}
-	
-	return 0;
+static void display_task_classes() {
+    std::cout << "╔════ TASK CLASSIFICATION ══════════════════════════════════╗\n";
+    std::cout << "║ REALTIME_AI    → Perf Core  (voice, real-time AI)        │\n";
+    std::cout << "║ INTERACTIVE_AI → Perf Core  (chatbot, incremental)       │\n";
+    std::cout << "║ BATCH_AI       → NPU/GPU    (training, batch infer)      │\n";
+    std::cout << "║ BACKGROUND     → Eff Core   (daemons, logging)           │\n";
+    std::cout << "║ UNKNOWN        → Fallback   (unclassified)               │\n";
+    std::cout << "╚═══════════════════════════════════════════════════════════╝\n\n";
 }
 
-void SchedulerMonitor::clear_screen()
-{
-	/* ANSI clear screen */
-	std::cout << "\033[2J\033[H";
-	std::cout.flush();
-}
+int main(int argc, char **argv) {
+    int refresh = 2;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "-n" && i+1 < argc)
+            refresh = std::atoi(argv[++i]);
+        else if (std::string(argv[i]) == "-h") {
+            std::cout << "Usage: aie_top [-n SECONDS]\n";
+            return 0;
+        }
+    }
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
 
-void SchedulerMonitor::display_header()
-{
-	std::cout << "╔════════════════════════════════════════════════════════════╗\n"
-		  << "║        AIE-OS Scheduler Monitor (aie_top)                ║\n"
-		  << "║  AI-Native Kernel Scheduler Real-Time Dashboard           ║\n"
-		  << "╚════════════════════════════════════════════════════════════╝\n";
-	std::cout << "\n";
-}
+    int stats_fd = bpf_obj_get(SCHED_STATS_PIN);
+    int energy_fd = bpf_obj_get(ENERGY_MODE_PIN);
 
-void SchedulerMonitor::display_stats(const struct ai_sched_stats *stats)
-{
-	std::cout << "╔════ SCHEDULER STATISTICS ════════════════════════════════╗\n";
-	
-	std::cout << std::fixed << std::setprecision(2);
-	
-	std::cout << "║ Total Tasks Enqueued:           " 
-		  << std::setw(20) << stats->tasks_enqueued << " │\n";
-	
-	std::cout << "║ Total Tasks Dispatched:         " 
-		  << std::setw(20) << stats->tasks_dispatched << " │\n";
-	
-	
-	std::cout << "║ AI Tasks → Perf Cores:          " 
-		  << std::setw(20) << stats->tasks_ai_routed_cpu << " │\n";
-	
-	std::cout << "║ AI Tasks → NPU:                 " 
-		  << std::setw(20) << stats->tasks_ai_routed_npu << " │\n";
-	
-	std::cout << "║ Background → Eff Cores:        " 
-		  << std::setw(20) << stats->tasks_bg_routed_eff << " │\n";
-	
-	std::cout << "║ Avg Enqueue Latency:            " 
-		  << std::setw(15) << stats->avg_enqueue_latency_us << " µs │\n";
-	
-	std::cout << "║ Estimated Energy (~):           " 
-		  << std::setw(15) << stats->total_energy_estimate_mj << " mJ │\n";
-	
-	std::cout << "╚═══════════════════════════════════════════════════════════╝\n";
-	std::cout << "\n";
-}
+    if (stats_fd < 0)
+        std::cerr << "[WARN] Stats map not pinned yet. Run: sudo ./pin_maps.sh\n\n";
 
-void SchedulerMonitor::display_energy_mode()
-{
-	std::cout << "╔════ POWER MANAGEMENT ═════════════════════════════════════╗\n";
-	std::cout << "║ Energy Mode:        BALANCED (override with aie_config)   │\n";
-	std::cout << "║ Options:            PERFORMANCE, BALANCED, EFFICIENT      │\n";
-	std::cout << "║                     POWER_SAVER                           │\n";
-	std::cout << "╚═══════════════════════════════════════════════════════════╝\n";
-	std::cout << "\n";
-}
-
-void SchedulerMonitor::display_task_classes()
-{
-	std::cout << "╔════ TASK CLASSIFICATION REFERENCE ════════════════════════╗\n";
-	std::cout << "║ 🔴 REALTIME_AI       - Ultra-low latency inference        │\n";
-	std::cout << "║                         (voice input, time-critical)      │\n";
-	std::cout << "║                         → Route: Perf Core (P-cluster)    │\n";
-	std::cout << "║                                                            │\n";
-	std::cout << "║ 🟠 INTERACTIVE_AI     - Responsive inference/processing   │\n";
-	std::cout << "║                         (chatbot, incremental inference)  │\n";
-	std::cout << "║                         → Route: Perf Core or Auto        │\n";
-	std::cout << "║                                                            │\n";
-	std::cout << "║ 🟡 BATCH_AI          - Model training, background infer   │\n";
-	std::cout << "║                         (training, batch processing)      │\n";
-	std::cout << "║                         → Route: Auto (NPU/GPU/Perf)     │\n";
-	std::cout << "║                                                            │\n";
-	std::cout << "║ 🟢 BACKGROUND        - Non-AI system / daemon tasks      │\n";
-	std::cout << "║                         (filesystem, logging, cleanup)    │\n";
-	std::cout << "║                         → Route: Efficiency Core (E-clus) │\n";
-	std::cout << "║                                                            │\n";
-	std::cout << "║ ⚪ UNKNOWN            - Not yet classified                  │\n";
-	std::cout << "║                                                            │\n";
-	std::cout << "╚═══════════════════════════════════════════════════════════╝\n";
-}
-
-} // namespace aie
-
-/* ======================== Signal Handling ======================== */
-
-static aie::SchedulerMonitor *monitor = nullptr;
-
-void signal_handler(int sig)
-{
-	if (monitor) {
-		monitor->shutdown();
-	}
-}
-
-/* ======================== Main ======================== */
-
-int main(int argc, char **argv)
-{
-	int refresh_interval = 2;	/* Default 2 seconds */
-	
-	/* Parse arguments */
-	for (int i = 1; i < argc; ++i) {
-		if (std::string(argv[i]) == "-n" && i + 1 < argc) {
-			refresh_interval = std::atoi(argv[++i]);
-		} else if (std::string(argv[i]) == "-h" || std::string(argv[i]) == "--help") {
-			std::cout << "Usage: aie_top [OPTIONS]\n\n"
-				  << "Options:\n"
-				  << "  -n SECONDS    Refresh interval (default: 2)\n"
-				  << "  -h,--help     Show this help message\n";
-			return 0;
-		}
-	}
-	
-	aie::SchedulerMonitor monitor_inst;
-	monitor = &monitor_inst;
-	
-	/* Register signals */
-	signal(SIGINT, signal_handler);
-	signal(SIGTERM, signal_handler);
-	
-	if (monitor_inst.init() != 0) {
-		std::cerr << "Failed to initialize monitor" << std::endl;
-		return 1;
-	}
-	
-	int ret = monitor_inst.run(refresh_interval);
-	
-	return ret;
+    while (running) {
+        clear_screen();
+        display_header();
+        struct ai_sched_stats stats = {};
+        bool live = false;
+        if (stats_fd >= 0) {
+            uint32_t key = 0;
+            if (bpf_map_lookup_elem(stats_fd, &key, &stats) == 0)
+                live = true;
+        }
+        uint32_t energy_mode = 1;
+        if (energy_fd >= 0) {
+            uint32_t key = 0;
+            bpf_map_lookup_elem(energy_fd, &key, &energy_mode);
+        }
+        display_stats(&stats, live);
+        display_energy(energy_mode);
+        display_task_classes();
+        std::cout << "[Refreshing every " << refresh << "s. Ctrl+C to exit]\n";
+        sleep(refresh);
+    }
+    if (stats_fd >= 0) close(stats_fd);
+    if (energy_fd >= 0) close(energy_fd);
+    return 0;
 }

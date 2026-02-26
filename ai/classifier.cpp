@@ -1,3 +1,4 @@
+#include <ctime>
 /*
  * AIE-OS Task Classifier Implementation
  *
@@ -47,7 +48,7 @@ int Classifier::classify(const struct ai_task_telemetry *telemetry,
 	
 	std::memset(decision, 0, sizeof(*decision));
 	decision->pid = telemetry->pid;
-	decision->ts_decision = bpf_ktime_get_ns();
+	struct timespec _ts; clock_gettime(CLOCK_MONOTONIC, &_ts); decision->ts_decision = (__u64)_ts.tv_sec * 1000000000ULL + _ts.tv_nsec;
 	
 	/* Stage 1: Heuristic classification */
 	decision->task_class = classify_heuristic(telemetry);
@@ -78,63 +79,37 @@ int Classifier::update_model(const struct ai_task_telemetry *telemetry,
 
 __u32 Classifier::classify_heuristic(const struct ai_task_telemetry *telemetry)
 {
-	/* Pattern 1: System/kernel tasks -> BACKGROUND */
-	if (telemetry->sched_class == SCHED_IDLE || telemetry->sched_class == 0) {
-		return AI_TASK_CLASS_BACKGROUND;
-	}
-	
-	/* Pattern 2: HIGH PRIORITY + LOW CPU UTIL -> REALTIME_AI
-	 * Example: voice assistant waiting for input with SCHED_FIFO
-	 */
-	if (telemetry->nice_value < -10 && telemetry->cpu_util_recent < 30) {
-		return AI_TASK_CLASS_REALTIME_AI;
-	}
-	
-	/* Pattern 3: HIGH SYSCALL RATE -> INTERACTIVE_AI
-	 * Example: LLM chatbot responding to user input
-	 * Syscalls = context switches, which are high for I/O bound interactive tasks
-	 */
-	if (telemetry->syscall_count > 200) {
-		/* Further distinguish interactive from batch */
-		if (telemetry->memory_rss_mb < 500 && telemetry->num_threads < 8) {
-			return AI_TASK_CLASS_INTERACTIVE_AI;
-		}
-	}
-	
-	/* Pattern 4: LARGE MEMORY + MULTI-THREADED + SUSTAINED CPU -> BATCH_AI
-	 * Example: Training job, batch inference, data processing
-	 */
-	if (telemetry->memory_rss_mb > 500 && telemetry->num_threads >= 4) {
-		return AI_TASK_CLASS_BATCH_AI;
-	}
-	
-	/* Pattern 5: MODERATE CPU + I/O ACTIVITY -> INTERACTIVE_AI
-	 * Example: Model loading, incremental inference
-	 */
-	if (telemetry->cpu_util_recent > 40 && telemetry->cpu_util_recent < 80) {
-		if ((telemetry->io_read_bytes + telemetry->io_write_bytes) > 1024 * 1024) {
-			return AI_TASK_CLASS_INTERACTIVE_AI;
-		}
-	}
-	
-	/* Pattern 6: SUSTAINED HIGH CPU + LARGE MEMORY -> BATCH_AI
-	 * Example: Inference pipeline
-	 */
-	if (telemetry->cpu_util_recent > 70 && telemetry->memory_rss_mb > 200) {
-		return AI_TASK_CLASS_BATCH_AI;
-	}
-	
-	/* Default fallback: classify by memory size
-	 * - Large memory: likely batch/training
-	 * - Small memory: likely interactive or background
-	 */
-	if (telemetry->memory_rss_mb > 1000) {
-		return AI_TASK_CLASS_BATCH_AI;
-	} else if (telemetry->memory_rss_mb > 100) {
-		return AI_TASK_CLASS_INTERACTIVE_AI;
-	} else {
-		return AI_TASK_CLASS_BACKGROUND;
-	}
+    /* Safety check */
+    if (!telemetry)
+        return AI_TASK_CLASS_BACKGROUND;
+
+    /* Pattern 1: System / kernel tasks → BACKGROUND */
+    if (telemetry->sched_class == 5 || telemetry->sched_class == 0)
+        return AI_TASK_CLASS_BACKGROUND;
+
+    /* Pattern 2: REALTIME_AI
+     * High priority (nice <= -10) AND high CPU usage
+     * Example: voice assistant, real-time inference
+     */
+    if (telemetry->nice_value <= -10 && telemetry->cpu_util_recent >= 40)
+        return AI_TASK_CLASS_REALTIME_AI;
+
+    /* Pattern 3: BATCH_AI (GPU/NPU candidate)
+     * Large memory usage OR multi-threaded workload
+     * Example: model training, batch inference
+     */
+    if (telemetry->memory_rss_mb >= 100 || telemetry->num_threads >= 2)
+        return AI_TASK_CLASS_BATCH_AI;
+
+    /* Pattern 4: INTERACTIVE_AI
+     * Moderate CPU usage
+     * Example: chatbot, incremental inference
+     */
+    if (telemetry->cpu_util_recent >= 20)
+        return AI_TASK_CLASS_INTERACTIVE_AI;
+
+    /* Pattern 5: fallback → BACKGROUND */
+    return AI_TASK_CLASS_BACKGROUND;
 }
 
 __u32 Classifier::select_device(const struct ai_task_telemetry *telemetry,

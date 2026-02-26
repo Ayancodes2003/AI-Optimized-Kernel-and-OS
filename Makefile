@@ -60,7 +60,7 @@ bpf: $(OUTPUT_DIR)/ai_sched.bpf.o $(OUTPUT_DIR)/telemetry.bpf.o
 $(OUTPUT_DIR)/%.bpf.o: $(KERNEL_DIR)/%.bpf.c vmlinux
 	@mkdir -p $(OUTPUT_DIR)
 	@echo "Building eBPF: $<"
-	$(CLANG) $(BPF_CFLAGS) -c $< -o $@ -I$(KERNEL_DIR)
+	$(CLANG) $(BPF_CFLAGS) -c $< -o $@ -I$(KERNEL_DIR) -I$(KERNEL_DIR)/include -I$(KERNEL_DIR)/include -I$(KERNEL_DIR)/include
 	$(LLVM_STRIP) -g $@
 
 # ======================== Daemon & Tools ========================

@@ -22,6 +22,7 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include "ai_sched.h"
+#include "scx/common.bpf.h"
 
 /* BPF Macro Helpers */
 #define BPF_STRUCT_OPS(name, args...)	\
@@ -128,12 +129,12 @@ static __always_inline __u32 classify_task_fallback(struct task_struct *p,
 	/* Heuristic classification based on thread count, memory, scheduler class */
 	
 	/* Realtime threads -> realtime AI (assume realtime task might be AI inference) */
-	if (p->__state == TASK_RUNNING && p->prio < 100) {
+	if (p->__state == 0 && p->prio < 100) {
 		return AI_TASK_CLASS_REALTIME_AI;
 	}
 	
 	/* Kernel threads and system tasks -> background */
-	if (p->flags & (PF_KTHREAD | PF_IDLE)) {
+	if (p->flags & (0x00200000 | 0x00000002)) {
 		return AI_TASK_CLASS_BACKGROUND;
 	}
 	

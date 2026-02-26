@@ -13,6 +13,9 @@
 #define __AIE_OS_DAEMON_IPC_H
 
 #include <cstdint>
+#include "ai_sched.h"
+#include <linux/bpf.h>
+#include <bpf/libbpf.h>
 #include <string>
 #include <memory>
 
@@ -21,21 +24,39 @@ namespace aie {
 /* Ring buffer reader for kernel telemetry streaming */
 class TelemetryReader {
 public:
-	TelemetryReader();
-	~TelemetryReader();
-	
-	/* Connect to kernel telemetry ring buffer */
-	int connect(const char *bpf_obj_path = "/sys/kernel/btf/aie_scheduler");
-	
-	/* Poll for next telemetry sample (blocking with timeout_ms) */
-	int read_sample(struct ai_task_telemetry *sample, int timeout_ms = 100);
-	
-	/* Close connection */
-	void disconnect();
-	
+        TelemetryReader()
+            : obj_(nullptr),
+              ringbuf_ctx_(nullptr),
+              ringbuf_fd_(-1)
+        {}
+
+        ~TelemetryReader() {
+            disconnect();
+        }
+
+        /* Connect to kernel telemetry ring buffer */
+        int connect(const char *bpf_obj_path = "/usr/local/lib/aie-os/telemetry.bpf.o");
+
+        /* Poll for next telemetry sample (blocking with timeout_ms) */
+        int read_sample(struct ai_task_telemetry *sample, int timeout_ms = 100);
+
+        /* Close connection */
+        void disconnect() {
+            if (ringbuf_ctx_) {
+                ring_buffer__free(ringbuf_ctx_);
+                ringbuf_ctx_ = nullptr;
+            }
+
+            if (obj_) {
+                bpf_object__close(obj_);
+                obj_ = nullptr;
+            }
+        }
+
 private:
-	void *ringbuf_ctx_;
-	int ringbuf_fd_;
+        struct bpf_object *obj_;          // REQUIRED — this fixes your error
+        struct ring_buffer *ringbuf_ctx_;
+        int ringbuf_fd_;
 };
 
 /* Scheduling decision writer to kernel */
@@ -45,7 +66,7 @@ public:
 	~DecisionWriter();
 	
 	/* Connect to kernel decision map */
-	int connect(const char *bpf_obj_path = "/sys/kernel/btf/aie_scheduler");
+        int connect(const char *bpf_obj_path = "/usr/local/lib/aie-os/telemetry.bpf.o");
 	
 	/* Write scheduling decision for a task (kernel will read and apply) */
 	int write_decision(const struct ai_sched_decision *decision);
