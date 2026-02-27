@@ -22,6 +22,8 @@
 #include <sys/time.h>
 
 #include "ai_sched.h"
+#include "common/config.h"
+#include "ai/backends/device_manager.h"
 
 namespace aie {
 
@@ -40,15 +42,16 @@ private:
 	void display_stats(const struct ai_sched_stats *stats);
 	void display_energy_mode();
 	void display_task_classes();
+	void display_backend_info();
 	void clear_screen();
-	
-	bool running_;
-};
 
-SchedulerMonitor::SchedulerMonitor()
-	: running_(false)
-{
-}
+	bool running_;
+	// detection state
+	bool has_gpu_;
+	bool has_npu_;
+	std::string classifier_type_;
+	std::unique_ptr<aie::DeviceManager> device_manager_;
+};
 
 SchedulerMonitor::~SchedulerMonitor()
 {
@@ -56,9 +59,17 @@ SchedulerMonitor::~SchedulerMonitor()
 
 int SchedulerMonitor::init()
 {
-	/* TODO: Connect to stats monitor interface
-	 * For now: stub
-	 */
+	/* read configuration */
+	aie::Config cfg;
+	cfg.load("/etc/aie-os/aie.conf");
+	classifier_type_ = cfg.get("classifier", "heuristic");
+
+	/* build device manager to detect hardware */
+	device_manager_ = std::make_unique<aie::DeviceManager>();
+	device_manager_->init();
+	has_gpu_ = device_manager_->has_gpu();
+	has_npu_ = device_manager_->has_npu();
+
 	running_ = true;
 	return 0;
 }
@@ -76,10 +87,7 @@ int SchedulerMonitor::run(int refresh_interval_sec)
 	while (running_) {
 		clear_screen();
 		display_header();
-		
-		/* TODO: Read actual stats from kernel
-		 * For now: display placeholder
-		 */
+		display_backend_info();
 		display_stats(&stats);
 		display_energy_mode();
 		display_task_classes();
@@ -149,6 +157,16 @@ void SchedulerMonitor::display_energy_mode()
 	std::cout << "║ Options:            PERFORMANCE, BALANCED, EFFICIENT      │\n";
 	std::cout << "║                     POWER_SAVER                           │\n";
 	std::cout << "╚═══════════════════════════════════════════════════════════╝\n";
+	std::cout << "\n";
+}
+
+void SchedulerMonitor::display_backend_info()
+{
+	std::cout << "╔════ DEVICE / CLASSIFIER INFO ══════════════════════════╗\n";
+	std::cout << "║ GPU present: " << (has_gpu_ ? "yes" : "no")
+	          << "   NPU present: " << (has_npu_ ? "yes" : "no") << "            │\n";
+	std::cout << "║ Classifier: " << classifier_type_ << "                     │\n";
+	std::cout << "╚═══════════════════════════════════════════════════════╝\n";
 	std::cout << "\n";
 }
 

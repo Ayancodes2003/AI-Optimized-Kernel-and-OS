@@ -26,6 +26,9 @@
 #include "ai_sched.h"
 #include "ipc/ipc_interface.h"
 #include "classifier.h"
+#include "onnx_classifier.h"
+#include "common/config.h"
+#include "ai/backends/device_manager.h"
 
 namespace aie {
 
@@ -72,6 +75,9 @@ private:
 	/* Classifier engine */
 	std::unique_ptr<Classifier> classifier_;
 	
+	/* Device manager for GPU/NPU/CPU backends */
+	std::unique_ptr<DeviceManager> device_manager_;
+	
 	/* Pending telemetry samples */
 	std::vector<struct ai_task_telemetry> pending_telemetry_;
 	
@@ -96,7 +102,8 @@ AieDaemon::AieDaemon()
 	decision_writer_ = std::make_unique<DecisionWriter>();
 	config_ = std::make_unique<SchedulerConfig>();
 	stats_ = std::make_unique<StatsMonitor>();
-	classifier_ = std::make_unique<Classifier>();
+	// classifier and device manager will be instantiated in init()
+	device_manager_ = std::make_unique<DeviceManager>();
 }
 
 AieDaemon::~AieDaemon()
@@ -129,10 +136,29 @@ int AieDaemon::init()
 		return -1;
 	}
 	
-	/* Initialize classifier */
+	/* Load configuration file */
+	aie::Config cfg;
+	cfg.load("/etc/aie-os/aie.conf");
+	std::string classifier_type = cfg.get("classifier", "heuristic");
+	std::string model_path = cfg.get("model_path", "");
+
+	if (classifier_type == "onnx") {
+		log(LOG_INFO, "Using ONNX classifier (model=%s)",
+		    model_path.c_str());
+		classifier_ = std::make_unique<OnnxClassifier>(model_path);
+	} else {
+		log(LOG_INFO, "Using heuristic classifier");
+		classifier_ = std::make_unique<Classifier>();
+	}
+
 	if (classifier_->init() != 0) {
 		log(LOG_ERR, "Failed to initialize classifier");
 		return -1;
+	}
+
+	/* Initialize device manager (detect GPU/NPU) */
+	if (device_manager_->init() != 0) {
+		log(LOG_WARNING, "Device manager initialization failed");
 	}
 	
 	log(LOG_INFO, "Kernel interfaces connected successfully");
@@ -235,6 +261,12 @@ void AieDaemon::classify_pending_tasks()
 		
 		/* Run classifier on telemetry */
 		if (classifier_->classify(&telem, &decision) == 0) {
+			/* let device manager decide routing/logging */
+			DeviceBackend *backend = device_manager_->select_backend(
+				decision.preferred_device);
+			if (backend) {
+				backend->dispatch(decision);
+			}
 			pending_decisions_.push_back(decision);
 		}
 	}
