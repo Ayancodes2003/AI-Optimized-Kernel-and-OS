@@ -21,18 +21,32 @@ namespace aie {
 /* ======================== TelemetryReader ======================== */
 
 
+TelemetryReader::TelemetryReader()
+{
+    ringbuf_ctx_ = NULL;
+    ringbuf_fd_ = -1;
+    obj_ = NULL;
+}
+
+TelemetryReader::~TelemetryReader()
+{
+    disconnect();
+}
+
 int TelemetryReader::connect(const char *bpf_obj_path)
 {
     const char *path = "/usr/local/lib/aie-os/telemetry.bpf.o";
 
+    printf("Opening telemetry BPF object: %s\n", path);
+
     obj_ = bpf_object__open_file(path, NULL);
     if (!obj_) {
-        perror("bpf_object__open_file telemetry");
+        perror("bpf_object__open_file");
         return -1;
     }
 
     if (bpf_object__load(obj_)) {
-        perror("bpf_object__load telemetry");
+        perror("bpf_object__load");
         return -1;
     }
 
@@ -40,7 +54,7 @@ int TelemetryReader::connect(const char *bpf_obj_path)
         bpf_object__find_map_by_name(obj_, "telemetry_ringbuf");
 
     if (!rb_map) {
-        fprintf(stderr, "Failed to find telemetry_ringbuf map\n");
+        fprintf(stderr, "ERROR: telemetry_ringbuf map not found\n");
         return -1;
     }
 
@@ -48,34 +62,86 @@ int TelemetryReader::connect(const char *bpf_obj_path)
 
     ringbuf_ctx_ = ring_buffer__new(
         ringbuf_fd_,
-        [](void *ctx, void *data, size_t len) {
+        [](void *ctx, void *data, size_t len) -> int {
+            /* Real telemetry callback */
+            struct ai_task_telemetry *sample =
+                (struct ai_task_telemetry *)data;
+
+            printf("Telemetry event: PID=%u CPU=%u MEM=%u\n",
+                   sample->pid,
+                   sample->cpu_util_recent,
+                   sample->memory_rss_mb);
+
             return 0;
         },
         NULL,
         NULL);
 
     if (!ringbuf_ctx_) {
-        fprintf(stderr, "Failed to create ring buffer\n");
+        fprintf(stderr, "ERROR: ring_buffer__new failed\n");
         return -1;
     }
 
-    printf("TelemetryReader: REAL telemetry mode enabled\n");
+    printf("TelemetryReader connected successfully\n");
 
     return 0;
 }
 
-
 int TelemetryReader::read_sample(struct ai_task_telemetry *sample, int timeout_ms)
 {
+    if (!ringbuf_ctx_)
+        return -1;
+
     return ring_buffer__poll(ringbuf_ctx_, timeout_ms);
 }
+
+void TelemetryReader::disconnect()
+{
+    if (ringbuf_ctx_) {
+        ring_buffer__free(ringbuf_ctx_);
+        ringbuf_ctx_ = NULL;
+    }
+
+    if (obj_) {
+        bpf_object__close(obj_);
+        obj_ = NULL;
+    }
+
+    ringbuf_fd_ = -1;
+}
+
+
 
 
 /* ======================== DecisionWriter ======================== */
 
 DecisionWriter::DecisionWriter()
-	: decision_map_fd_(-1)
+    : decision_map_fd_(-1)
 {
+    struct bpf_object *obj;
+
+    obj = bpf_object__open_file("/usr/local/lib/aie-os/ai_sched.bpf.o", NULL);
+    if (!obj) {
+        perror("DecisionWriter: open failed");
+        return;
+    }
+
+    if (bpf_object__load(obj)) {
+        perror("DecisionWriter: load failed");
+        return;
+    }
+
+    struct bpf_map *map =
+        bpf_object__find_map_by_name(obj, "sched_decisions");
+
+    if (!map) {
+        printf("DecisionWriter: sched_decisions map not found\n");
+        return;
+    }
+
+    decision_map_fd_ = bpf_map__fd(map);
+
+    printf("DecisionWriter: REAL kernel mode enabled\n");
 }
 
 DecisionWriter::~DecisionWriter()

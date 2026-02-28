@@ -4,6 +4,9 @@
 #include "classifier.h"
 #include <string>
 #include <memory>
+#include <vector>
+#include <string>
+#include <ctime>
 
 /* Forward declare ONNX Runtime classes (included in cpp) */
 namespace Ort {

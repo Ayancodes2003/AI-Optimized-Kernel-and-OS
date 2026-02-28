@@ -1,3 +1,6 @@
+#include <unistd.h>
+#include <thread>
+#include <chrono>
 /*
  * AIE-OS AI Workload Demo: Matrix Compute
  * CPU-intensive tensor operations to trigger batch/AI classification.

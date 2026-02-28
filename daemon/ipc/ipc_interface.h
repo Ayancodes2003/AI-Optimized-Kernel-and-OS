@@ -21,40 +21,19 @@
 
 namespace aie {
 
-/* Ring buffer reader for kernel telemetry streaming */
 class TelemetryReader {
 public:
-        TelemetryReader()
-            : obj_(nullptr),
-              ringbuf_ctx_(nullptr),
-              ringbuf_fd_(-1)
-        {}
+        TelemetryReader();
+        ~TelemetryReader();
 
-        ~TelemetryReader() {
-            disconnect();
-        }
-
-        /* Connect to kernel telemetry ring buffer */
         int connect(const char *bpf_obj_path = "/usr/local/lib/aie-os/telemetry.bpf.o");
 
-        /* Poll for next telemetry sample (blocking with timeout_ms) */
         int read_sample(struct ai_task_telemetry *sample, int timeout_ms = 100);
 
-        /* Close connection */
-        void disconnect() {
-            if (ringbuf_ctx_) {
-                ring_buffer__free(ringbuf_ctx_);
-                ringbuf_ctx_ = nullptr;
-            }
-
-            if (obj_) {
-                bpf_object__close(obj_);
-                obj_ = nullptr;
-            }
-        }
+        void disconnect();
 
 private:
-        struct bpf_object *obj_;          // REQUIRED — this fixes your error
+        struct bpf_object *obj_;
         struct ring_buffer *ringbuf_ctx_;
         int ringbuf_fd_;
 };

@@ -97,7 +97,7 @@ $(BUILD_DIR)/npu_backend.o: $(AI_DIR)/backends/npu_backend.cpp
 	$(CXX) $(CXXFLAGS) $(DAEMON_INCLUDES) -c $< -o $@
 
 # Include directories for daemon
-DAEMON_INCLUDES := -I$(KERNEL_DIR)/include -I$(DAEMON_DIR) -I$(AI_DIR) -Icommon
+DAEMON_INCLUDES := -I$(KERNEL_DIR)/include -I$(DAEMON_DIR) -I$(AI_DIR) -I.
 
 # Daemon object files
 DAEMON_OBJS := \

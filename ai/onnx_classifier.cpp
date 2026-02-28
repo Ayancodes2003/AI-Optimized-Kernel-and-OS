@@ -1,3 +1,4 @@
+#include <ctime>
 #include "onnx_classifier.h"
 #include <onnxruntime_cxx_api.h>
 #include <fstream>
@@ -61,15 +62,11 @@ bool OnnxClassifier::load_model()
         /* cache input/output names */
         size_t num_inputs = session_->GetInputCount();
         for (size_t i = 0; i < num_inputs; i++) {
-            char *name = session_->GetInputName(i, *allocator_);
-            input_names_.emplace_back(name);
-            allocator_->Free(name);
+            auto name_a = session_->GetInputNameAllocated(i, *allocator_); input_names_.emplace_back(name_a.get());
         }
         size_t num_outputs = session_->GetOutputCount();
         for (size_t i = 0; i < num_outputs; i++) {
-            char *name = session_->GetOutputName(i, *allocator_);
-            output_names_.emplace_back(name);
-            allocator_->Free(name);
+            auto name_b = session_->GetOutputNameAllocated(i, *allocator_); output_names_.emplace_back(name_b.get());
         }
 
         /* remember input shape (assume first input) */
@@ -122,7 +119,7 @@ int OnnxClassifier::classify(const struct ai_task_telemetry *telemetry,
     features[2] = (float)(telemetry->io_read_bytes + telemetry->io_write_bytes);
     features[3] = (float)telemetry->syscall_count;
     /* compute age in ms using current kernel time */
-    __u64 now = bpf_ktime_get_ns();
+    struct timespec _ts; clock_gettime(CLOCK_MONOTONIC, &_ts); __u64 now = (__u64)_ts.tv_sec * 1000000000ULL + _ts.tv_nsec;
     features[4] = (float)((now - telemetry->ts_enqueue) / 1000000ULL);
     features[5] = (float)telemetry->num_threads;
 
@@ -148,7 +145,7 @@ int OnnxClassifier::classify(const struct ai_task_telemetry *telemetry,
         int max_idx = std::distance(prob, std::max_element(prob, prob + 5));
 
         decision->pid = telemetry->pid;
-        decision->ts_decision = bpf_ktime_get_ns();
+        struct timespec _ts3; clock_gettime(CLOCK_MONOTONIC, &_ts3); decision->ts_decision = (__u64)_ts3.tv_sec * 1000000000ULL + _ts3.tv_nsec;
         decision->task_class = (__u32)max_idx;
         decision->preferred_device = select_device(telemetry, decision->task_class);
         decision->time_slice_us = estimate_time_slice(telemetry, decision->task_class) / 1000ULL;
