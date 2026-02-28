@@ -1,0 +1,36 @@
+# Git attributes file
+# Ensures LF line endings on all platforms for shell scripts and source files
+
+* text=auto
+
+# Scripts
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Source code - C/C++
+*.c text eol=lf
+*.h text eol=lf
+*.cpp text eol=lf
+*.cc text eol=lf
+*.cxx text eol=lf
+
+# Build system
+Makefile text eol=lf
+*.mk text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.txt text eol=lf
+
+# Configuration
+*.conf text eol=lf
+*.cfg text eol=lf
+.gitignore text eol=lf
+
+# Binary files
+*.o binary
+*.a binary
+*.so binary
+*.bpf.o binary
+*.iso binary
+*.img binary

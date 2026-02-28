@@ -74,6 +74,13 @@ check_dependencies() {
 		missing=1
 	fi
 	
+	# Check for ONNX Runtime (required for ML classifier)
+	if ! pkg-config --exists onnxruntime; then
+		print_warn "ONNX Runtime not found (optional for ML inference)"
+		print_info "For ML support, install: sudo apt install libonnxruntime-dev"
+		print_info "System will fall back to heuristic classifier"
+	fi
+	
 	if [ $missing -eq 1 ]; then
 		exit 1
 	fi
@@ -154,9 +161,49 @@ install_tools() {
 		return 1
 	}
 	
-	# Additional tools can be installed here
+	# Install matrix_compute workload if built
+	if [ -f "${BUILD_DIR}/output/matrix_compute" ]; then
+		install -m 755 "${BUILD_DIR}/output/matrix_compute" \
+			"${INSTALL_PREFIX}/bin/" || {
+			print_warn "Failed to install matrix_compute workload"
+		}
+	fi
+	
+	# Install demo launcher
+	install -m 755 "tools/run_ai_demo.sh" \
+		"${INSTALL_PREFIX}/bin/aie_demo" || {
+		print_warn "Failed to install aie_demo launcher"
+	}
 	
 	print_info "Tools installed"
+}
+
+install_verification_script() {
+	print_info "Installing verification script..."
+	
+	install -m 755 "tools/verify_install.sh" \
+		"${INSTALL_PREFIX}/bin/aie_verify" || {
+		print_warn "Failed to install verification script"
+		return 1
+	}
+	
+	print_info "Verification script installed"
+}
+
+install_workload_scripts() {
+	print_info "Installing AI workload scripts..."
+	
+	local workload_dir="${INSTALL_PREFIX}/share/aie-os/workloads"
+	mkdir -p "$workload_dir"
+	
+	# Install Python workloads if present
+	[ -f "tools/workloads/pytorch_inference.py" ] && \
+		install -m 755 "tools/workloads/pytorch_inference.py" "$workload_dir/" || true
+	
+	[ -f "tools/workloads/onnx_inference.py" ] && \
+		install -m 755 "tools/workloads/onnx_inference.py" "$workload_dir/" || true
+	
+	print_info "Workload scripts installed"
 }
 
 install_systemd_service() {
@@ -187,6 +234,34 @@ install_headers() {
 	}
 	
 	print_info "Headers installed"
+}
+
+install_config() {
+	print_info "Installing configuration..."
+	
+	mkdir -p "/etc/aie-os"
+	
+	install -m 644 "config/aie.conf" \
+		"/etc/aie-os/" || {
+		print_error "Failed to install config"
+		return 1
+	}
+	
+	mkdir -p "${INSTALL_PREFIX}/share/aie-os"
+	
+	print_info "Configuration installed"
+}
+
+install_model_helper() {
+	print_info "Installing model installation helper..."
+	
+	install -m 755 "packaging/install_model.sh" \
+		"${INSTALL_PREFIX}/bin/aie_install_model" || {
+		print_error "Failed to install model helper"
+		return 1
+	}
+	
+	print_info "Model helper installed"
 }
 
 configure_permissions() {
@@ -302,9 +377,13 @@ main() {
 	
 	# Install components
 	install_headers
+	install_config
 	install_bpf_scheduler
 	install_daemon
 	install_tools
+	install_workload_scripts
+	install_verification_script
+	install_model_helper
 	
 	if [ -z "$SKIP_SERVICE" ]; then
 		install_systemd_service
@@ -322,10 +401,11 @@ main() {
 	print_info "AIE-OS Scheduler is ready to use"
 	print_info ""
 	print_info "Next steps:"
-	print_info "  1. Check service status: systemctl status aie_daemon"
-	print_info "  2. View logs: journalctl -u aie_daemon -f"
-	print_info "  3. Monitor scheduler: aie_top"
-	print_info "  4. Configure policies: aie_config --help"
+	print_info "  1. Verify installation: ${INSTALL_PREFIX}/bin/aie_verify"
+	print_info "  2. Check service status: systemctl status aie_daemon"
+	print_info "  3. Monitor scheduler: ${INSTALL_PREFIX}/bin/aie_top"
+	print_info "  4. Run AI demo: ${INSTALL_PREFIX}/bin/aie_demo pytorch"
+	print_info "  5. View logs: journalctl -u aie_daemon -f"
 }
 
 main "$@"

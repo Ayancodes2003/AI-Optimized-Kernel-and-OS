@@ -65,14 +65,51 @@ $(OUTPUT_DIR)/%.bpf.o: $(KERNEL_DIR)/%.bpf.c vmlinux
 
 # ======================== Daemon & Tools ========================
 
+# Additional AI/backend objects
+$(BUILD_DIR)/onnx_classifier.o: $(AI_DIR)/onnx_classifier.cpp
+	@mkdir -p $(BUILD_DIR)
+	@echo "Compiling: $<"
+	$(CXX) $(CXXFLAGS) $(DAEMON_INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/config.o: common/config.cpp
+	@mkdir -p $(BUILD_DIR)
+	@echo "Compiling: $<"
+	$(CXX) $(CXXFLAGS) $(DAEMON_INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/device_manager.o: $(AI_DIR)/backends/device_manager.cpp
+	@mkdir -p $(BUILD_DIR)
+	@echo "Compiling: $<"
+	$(CXX) $(CXXFLAGS) $(DAEMON_INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/cpu_backend.o: $(AI_DIR)/backends/cpu_backend.cpp
+	@mkdir -p $(BUILD_DIR)
+	@echo "Compiling: $<"
+	$(CXX) $(CXXFLAGS) $(DAEMON_INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/gpu_backend.o: $(AI_DIR)/backends/gpu_backend.cpp
+	@mkdir -p $(BUILD_DIR)
+	@echo "Compiling: $<"
+	$(CXX) $(CXXFLAGS) $(DAEMON_INCLUDES) -c $< -o $@
+
+$(BUILD_DIR)/npu_backend.o: $(AI_DIR)/backends/npu_backend.cpp
+	@mkdir -p $(BUILD_DIR)
+	@echo "Compiling: $<"
+	$(CXX) $(CXXFLAGS) $(DAEMON_INCLUDES) -c $< -o $@
+
 # Include directories for daemon
-DAEMON_INCLUDES := -I$(KERNEL_DIR)/include -I$(DAEMON_DIR) -I$(AI_DIR)
+DAEMON_INCLUDES := -I$(KERNEL_DIR)/include -I$(DAEMON_DIR) -I$(AI_DIR) -Icommon
 
 # Daemon object files
 DAEMON_OBJS := \
 	$(BUILD_DIR)/aie_daemon.o \
 	$(BUILD_DIR)/ipc_interface.o \
-	$(BUILD_DIR)/classifier.o
+	$(BUILD_DIR)/classifier.o \
+	$(BUILD_DIR)/onnx_classifier.o \
+	$(BUILD_DIR)/config.o \
+	$(BUILD_DIR)/device_manager.o \
+	$(BUILD_DIR)/cpu_backend.o \
+	$(BUILD_DIR)/gpu_backend.o \
+	$(BUILD_DIR)/npu_backend.o
 
 .PHONY: daemon
 daemon: $(OUTPUT_DIR)/aie_daemon
@@ -80,7 +117,7 @@ daemon: $(OUTPUT_DIR)/aie_daemon
 $(OUTPUT_DIR)/aie_daemon: $(DAEMON_OBJS)
 	@mkdir -p $(OUTPUT_DIR)
 	@echo "Linking daemon: $@"
-	$(CXX) $(CXXFLAGS) $^ -o $@ -lbpf -lelf -lz
+	$(CXX) $(CXXFLAGS) $^ -o $@ -lbpf -lelf -lz -lonnxruntime
 
 $(BUILD_DIR)/aie_daemon.o: $(DAEMON_DIR)/aie_daemon.cpp
 	@mkdir -p $(BUILD_DIR)
@@ -98,12 +135,22 @@ $(BUILD_DIR)/classifier.o: $(AI_DIR)/classifier.cpp
 	$(CXX) $(CXXFLAGS) $(DAEMON_INCLUDES) -c $< -o $@
 
 .PHONY: tools
-tools: $(OUTPUT_DIR)/aie_top
+tools: $(OUTPUT_DIR)/aie_top $(OUTPUT_DIR)/matrix_compute
 
-$(OUTPUT_DIR)/aie_top: $(TOOLS_DIR)/cli/aie_top.cpp
+$(OUTPUT_DIR)/aie_top: $(TOOLS_DIR)/cli/aie_top.cpp \
+	$(BUILD_DIR)/config.o \
+	$(BUILD_DIR)/device_manager.o \
+	$(BUILD_DIR)/cpu_backend.o \
+	$(BUILD_DIR)/gpu_backend.o \
+	$(BUILD_DIR)/npu_backend.o
 	@mkdir -p $(OUTPUT_DIR)
 	@echo "Building tool: $<"
-	$(CXX) $(CXXFLAGS) $(DAEMON_INCLUDES) $< -o $@ -lbpf
+	$(CXX) $(CXXFLAGS) $(DAEMON_INCLUDES) $^ -o $@ -lbpf
+
+$(OUTPUT_DIR)/matrix_compute: $(TOOLS_DIR)/workloads/matrix_compute.cpp
+	@mkdir -p $(OUTPUT_DIR)
+	@echo "Building workload: $<"
+	$(CXX) $(CXXFLAGS) -fopenmp $< -o $@
 
 # ======================== Installation ========================
 
