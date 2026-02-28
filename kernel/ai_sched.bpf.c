@@ -22,6 +22,7 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include "ai_sched.h"
+#include "scx/common.bpf.h"
 
 /* BPF Macro Helpers */
 #define BPF_STRUCT_OPS(name, args...)	\
@@ -125,29 +126,45 @@ static __always_inline __u64 get_time_slice_ns(__u32 task_class)
 static __always_inline __u32 classify_task_fallback(struct task_struct *p,
 						     struct ai_task_telemetry *telem)
 {
-	/* Heuristic classification based on thread count, memory, scheduler class */
-	
-	/* Realtime threads -> realtime AI (assume realtime task might be AI inference) */
-	if (p->__state == TASK_RUNNING && p->prio < 100) {
-		return AI_TASK_CLASS_REALTIME_AI;
-	}
-	
+	__u32 num_threads = 1;
+	__u32 memory_mb = 0;
+
 	/* Kernel threads and system tasks -> background */
-	if (p->flags & (PF_KTHREAD | PF_IDLE)) {
+	if (p->flags & (0x00200000 | 0x00000002)) {
 		return AI_TASK_CLASS_BACKGROUND;
 	}
-	
-	/* Multi-threaded processes with significant memory -> batch AI candidate */
-	if (telem->num_threads > 4 && telem->memory_rss_mb > 100) {
+
+	/* Read real thread count */
+	if (p->signal) {
+		num_threads = (__u32)p->signal->nr_threads;
+	}
+
+	/* Read real memory usage */
+	if (p->mm) {
+		unsigned long vm = p->mm->total_vm;
+		memory_mb = (__u32)((vm * 4096) >> 20);
+	}
+
+	/* Realtime threads -> realtime AI */
+	if (p->__state == 0 && p->prio < 100) {
+		return AI_TASK_CLASS_REALTIME_AI;
+	}
+
+	/* Multi-threaded processes with significant memory -> batch AI */
+	if (num_threads > 4 && memory_mb > 50) {
 		return AI_TASK_CLASS_BATCH_AI;
 	}
-	
-	/* High syscall rate -> interactive */
-	if (telem->syscall_count > 100) {
+
+	/* Single high-memory process -> interactive AI */
+	if (memory_mb > 200) {
 		return AI_TASK_CLASS_INTERACTIVE_AI;
 	}
-	
-	/* Default to unknown */
+
+	/* Low priority -> background */
+	if (p->prio > 130) {
+		return AI_TASK_CLASS_BACKGROUND;
+	}
+
 	return AI_TASK_CLASS_UNKNOWN;
 }
 
@@ -219,12 +236,24 @@ static __always_inline void emit_telemetry(struct task_struct *p, __u64 enqueue_
 	 * - Syscalls from task_struct instrumentation or tracepoint
 	 * - I/O from task_struct->ioac or blk tracepoints
 	 */
-	telem->cpu_util_recent = 0;	/* Placeholder */
-	telem->memory_rss_mb = 0;	/* Placeholder */
-	telem->syscall_count = 0;	/* Placeholder */
-	telem->io_read_bytes = 0;	/* Placeholder */
-	telem->io_write_bytes = 0;	/* Placeholder */
-	telem->num_threads = 1;		/* Placeholder */
+	/* Read real values from task_struct */
+	if (p->mm) {
+		/* Get RSS memory in MB - use total_vm as approximation */
+		unsigned long rss = p->mm->total_vm;
+		telem->memory_rss_mb = (__u32)((rss * 4096) >> 20);
+	} else {
+		telem->memory_rss_mb = 0;
+	}
+	/* Get thread count from signal struct */
+	if (p->signal) {
+		telem->num_threads = (__u32)p->signal->nr_threads;
+	} else {
+		telem->num_threads = 1;
+	}
+	telem->cpu_util_recent = (__u32)(p->se.avg.util_avg >> 2); /* 0-256 -> 0-64% approx */
+	telem->syscall_count = 0;
+	telem->io_read_bytes = 0;
+	telem->io_write_bytes = 0;
 	telem->nice_value = p->static_prio - 120;
 	telem->sched_class = p->policy;
 	

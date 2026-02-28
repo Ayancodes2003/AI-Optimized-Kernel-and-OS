@@ -9,7 +9,9 @@
 #ifndef __AIE_OS_AI_SCHED_H
 #define __AIE_OS_AI_SCHED_H
 
+#ifndef __BPF_TRACING__
 #include <linux/types.h>
+#endif
 
 /*
  * AI Workload Classification

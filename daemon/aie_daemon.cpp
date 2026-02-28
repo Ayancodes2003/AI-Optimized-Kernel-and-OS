@@ -18,6 +18,8 @@
 #include <vector>
 #include <map>
 #include <cstring>
+#include <cstdarg>
+#include <ctime>
 #include <csignal>
 #include <chrono>
 #include <unistd.h>
@@ -189,6 +191,7 @@ int AieDaemon::run()
 		if (stats_->read_stats(&stats) == 0) {
 			stats_->print_stats(&stats);
 		}
+usleep(10000);  // sleep 10ms
 	}
 	
 	/* Wait for worker threads to exit */
@@ -257,7 +260,7 @@ void AieDaemon::classify_pending_tasks()
 		std::memset(&decision, 0, sizeof(decision));
 		
 		decision.pid = telem.pid;
-		decision.ts_decision = bpf_ktime_get_ns();
+		struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); decision.ts_decision = (__u64)ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 		
 		/* Run classifier on telemetry */
 		if (classifier_->classify(&telem, &decision) == 0) {

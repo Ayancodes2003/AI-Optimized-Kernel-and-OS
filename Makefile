@@ -60,7 +60,7 @@ bpf: $(OUTPUT_DIR)/ai_sched.bpf.o $(OUTPUT_DIR)/telemetry.bpf.o
 $(OUTPUT_DIR)/%.bpf.o: $(KERNEL_DIR)/%.bpf.c vmlinux
 	@mkdir -p $(OUTPUT_DIR)
 	@echo "Building eBPF: $<"
-	$(CLANG) $(BPF_CFLAGS) -c $< -o $@ -I$(KERNEL_DIR)
+	$(CLANG) $(BPF_CFLAGS) -c $< -o $@ -I$(KERNEL_DIR) -I$(KERNEL_DIR)/include -I$(KERNEL_DIR)/include -I$(KERNEL_DIR)/include
 	$(LLVM_STRIP) -g $@
 
 # ======================== Daemon & Tools ========================
@@ -97,7 +97,7 @@ $(BUILD_DIR)/npu_backend.o: $(AI_DIR)/backends/npu_backend.cpp
 	$(CXX) $(CXXFLAGS) $(DAEMON_INCLUDES) -c $< -o $@
 
 # Include directories for daemon
-DAEMON_INCLUDES := -I$(KERNEL_DIR)/include -I$(DAEMON_DIR) -I$(AI_DIR) -Icommon
+DAEMON_INCLUDES := -I$(KERNEL_DIR)/include -I$(DAEMON_DIR) -I$(AI_DIR) -I.
 
 # Daemon object files
 DAEMON_OBJS := \

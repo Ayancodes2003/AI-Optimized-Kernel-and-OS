@@ -125,13 +125,13 @@ install_bpf_scheduler() {
 	mkdir -p "${INSTALL_PREFIX}/lib/aie-os"
 	
 	# Copy compiled eBPF object files
-	install -m 644 "${BUILD_DIR}/kernel/ai_sched.bpf.o" \
+	install -m 644 "${BUILD_DIR}/build/output/ai_sched.bpf.o" \
 		"${INSTALL_PREFIX}/lib/aie-os/" || {
 		print_error "Failed to install ai_sched.bpf.o"
 		return 1
 	}
 	
-	install -m 644 "${BUILD_DIR}/kernel/telemetry.bpf.o" \
+	install -m 644 "${BUILD_DIR}/build/output/telemetry.bpf.o" \
 		"${INSTALL_PREFIX}/lib/aie-os/" || {
 		print_error "Failed to install telemetry.bpf.o"
 		return 1
@@ -143,7 +143,7 @@ install_bpf_scheduler() {
 install_daemon() {
 	print_info "Installing aie_daemon..."
 	
-	install -m 755 "${BUILD_DIR}/daemon/aie_daemon" \
+	install -m 755 "${BUILD_DIR}/build/output/aie_daemon" \
 		"${INSTALL_PREFIX}/bin/" || {
 		print_error "Failed to install aie_daemon"
 		return 1
@@ -155,7 +155,7 @@ install_daemon() {
 install_tools() {
 	print_info "Installing tools..."
 	
-	install -m 755 "${BUILD_DIR}/tools/cli/aie_top" \
+	install -m 755 "${BUILD_DIR}/build/output/aie_top" \
 		"${INSTALL_PREFIX}/bin/" || {
 		print_error "Failed to install aie_top"
 		return 1
