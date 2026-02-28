@@ -1,6 +1,6 @@
 # AIE-OS: AI-Native Linux Scheduler and Operating System
 
-Production-grade AI-aware operating system based on Linux sched_ext eBPF, enabling intelligent scheduling of AI workloads across heterogeneous compute (CPU, GPU, AMD Ryzen AI NPU).
+Production-grade AI-aware operating system based on Linux sched_ext eBPF, enabling intelligent scheduling of AI workloads across heterogeneous compute. CPU routing is fully operational; GPU/NPU backends are implemented and hardware-ready, with integration for physical dispatch ongoing.
 
 ## Overview
 
@@ -9,7 +9,7 @@ AIE-OS addresses a fundamental gap in modern operating systems: traditional kern
 AIE-OS introduces **intent-aware heterogeneous scheduling** directly in the Linux kernel:
 
 - **AI workload classification** at the kernel level via runtime telemetry analysis and ML inference
-- **Intelligent routing** to optimal compute resources (CPU P/E cores, GPU, AMD Ryzen AI NPU)
+- **Intelligent routing** to optimal compute resources – CPU dispatch active, GPU/NPU routing architecture in place and ready for hardware integration
 - **Energy-aware policies** that balance performance and power consumption
 - **Transparent integration** with existing Linux applications (no code changes required)
 
@@ -42,7 +42,7 @@ This is fundamental OS architecture work, not an application-level optimization.
 
 - **sched_ext eBPF AI kernel scheduler** with 5-class task classification (REALTIME_AI, INTERACTIVE_AI, BATCH_AI, BACKGROUND, UNKNOWN)
 - **ONNX ML classifier** for intelligent workload intent detection, with heuristic fallback
-- **Heterogeneous compute routing** (CPU P-cores, E-cores, GPU, AMD Ryzen AI NPU)
+- **Heterogeneous compute routing architecture** (CPU active; GPU/NPU backends implemented and hardware-ready)
 - **Runtime device detection** with graceful degradation if GPUs/NPUs absent
 - **Energy-aware scheduling policies** (PERFORMANCE, BALANCED, EFFICIENT, POWER_SAVER)
 - **Userspace daemon** for telemetry processing and decision feedback
@@ -107,7 +107,7 @@ ai_sched.bpf.c enqueue hook
 dispatch queue selection
     ├─ realtime_ai     → CPU P-cores
     ├─ interactive_ai  → CPU P-cores or auto
-    ├─ batch_ai        → GPU/NPU or auto
+    ├─ batch_ai        → GPU/NPU (backend-enabled; CPU fallback if unavailable)
     ├─ background      → CPU E-cores
     └─ unknown         → auto (kernel decides)
     ↓
@@ -313,7 +313,7 @@ sudo ./packaging/iso/build_iso.sh --output aie-os.iso
 
 ## AMD Ryzen AI and AIE-OS
 
-AMD Ryzen AI NPUs are specialized for AI inference but remain largely unused by current operating systems. AIE-OS is designed to fully unlock NPU potential:
+AMD Ryzen AI NPUs are specialized for AI inference. AIE-OS implements runtime detection and scheduler routing support; execution backend integration is underway:
 
 - **NPU Detection**: Automatically detects AMD Ryzen AI NPU at runtime
 - **Scheduler-aware Routing**: Routes BATCH_AI and INTERACTIVE_AI tasks to NPU when available
@@ -324,12 +324,14 @@ This represents the first step toward **AI-native operating systems** that make 
 
 ## Status
 
-**Phase 1–4 Complete — Production Ready**
+**Validated Prototype — Phase 1–4 Complete**
 
-- [x] Kernel scheduler with sched_ext eBPF (Phase 1)
-- [x] ONNX ML classifier with heuristic fallback (Phase 2)
-- [x] CPU/GPU/NPU routing backends (Phase 3)
-- [x] Demo workloads, verification, ISO pipeline (Phase 4)
+- Kernel scheduler operational
+- Telemetry pipeline validated
+- Classification loop functional
+- CPU dispatch active
+- GPU/NPU backend architecture implemented
+- Bootable ISO artifact available
 
 Latest build: February 27, 2026
 
@@ -339,6 +341,14 @@ Latest build: February 27, 2026
 - Collect real-world telemetry and performance metrics
 - Fine-tune heuristic patterns from production workloads
 - Train ONNX models on collected scheduling data for improved classification
+
+## Heterogeneous Scheduling State
+
+The scheduling substrate supports backend‑ready heterogeneous dispatch. The **CPU backend is fully operational**, and GPU/NPU detection routines are in place. Routing paths through the device‑aware dispatch architecture have been implemented; full hardware dispatch integration remains pending. In virtualised environments the accelerators themselves may not be exposed, but the system will still operate on CPU.
+
+## ISO Availability
+
+A bootable ISO file is produced by the build pipeline and has been exercised successfully. It boots an Ubuntu‑based AIE‑OS image with the scheduler and daemon preinstalled and demo workloads included. The ISO requires a sched_ext‑enabled kernel on the host, as described earlier, to activate the AI scheduler after booting.
 
 ## License
 
