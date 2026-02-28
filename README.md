@@ -51,6 +51,24 @@ This is fundamental OS architecture work, not an application-level optimization.
 - **System verification script** for deployment validation
 - **Bootable AIE-OS ISO** builder for Ubuntu-based distribution
 
+## Impact & Use Cases
+
+### Future of Work & AI Productivity
+
+Modern developer, research, and creative workflows increasingly rely on local AI tools such as language models, code assistants, and generative media applications. However, current operating systems schedule these workloads as generic processes, without awareness of their computational intent or hardware acceleration opportunities.
+
+AIE-OS introduces AI-aware scheduling at the kernel level, enabling intelligent routing of AI workloads across heterogeneous compute resources (CPU, GPU, and NPU). This improves responsiveness and throughput for local AI tools while reducing contention with interactive applications.
+
+By optimizing how AI tasks execute on personal machines, AIE-OS supports faster on-device inference, smoother multitasking with AI assistants, and more efficient execution of generative and analytical workloads. This directly enhances productivity for developers, students, and creators working with AI-driven tools.
+
+### Sustainable & Energy-Efficient AI
+
+AI workloads are often executed on high-power CPU or GPU resources even when more efficient accelerators are available. Emerging processors now include dedicated neural processing units (NPUs) designed for low-power inference, but conventional operating systems do not schedule tasks with energy-aware hardware selection.
+
+AIE-OS incorporates heterogeneous compute awareness into the Linux scheduler, allowing AI workloads to be preferentially routed toward energy-efficient accelerators when available. This reduces unnecessary high-power compute usage and enables more sustainable on-device AI execution.
+
+Such energy-aware scheduling is particularly relevant for laptops and edge systems where thermal limits, battery life, and efficiency are critical. By aligning workload characteristics with appropriate hardware, AIE-OS demonstrates how operating systems can contribute to greener AI computing.
+
 ## Architecture
 
 ### Layered Design
